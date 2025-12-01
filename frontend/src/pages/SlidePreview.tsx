@@ -38,10 +38,8 @@ export const SlidePreview: React.FC = () => {
   // 加载项目数据
   useEffect(() => {
     if (projectId && (!currentProject || currentProject.id !== projectId)) {
-      const savedId = localStorage.getItem('currentProjectId');
-      if (savedId === projectId) {
-        syncProject();
-      }
+      // 直接使用 projectId 同步项目数据
+      syncProject(projectId);
     }
   }, [projectId, currentProject, syncProject]);
 

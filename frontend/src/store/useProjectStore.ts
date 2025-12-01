@@ -18,7 +18,7 @@ interface ProjectState {
   
   // 项目操作
   initializeProject: (type: 'idea' | 'outline' | 'description', content: string, templateImage?: File) => Promise<void>;
-  syncProject: () => Promise<void>;
+  syncProject: (projectId?: string) => Promise<void>;
   
   // 页面操作
   updatePageLocal: (pageId: string, data: any) => void;
@@ -113,14 +113,31 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   // 同步项目数据
-  syncProject: async () => {
+  syncProject: async (projectId?: string) => {
     const { currentProject } = get();
-    if (!currentProject) return;
+    
+    // 如果没有提供 projectId，尝试从 currentProject 或 localStorage 获取
+    let targetProjectId = projectId;
+    if (!targetProjectId) {
+      if (currentProject?.id) {
+        targetProjectId = currentProject.id;
+      } else {
+        targetProjectId = localStorage.getItem('currentProjectId') || undefined;
+      }
+    }
+    
+    if (!targetProjectId) {
+      console.warn('syncProject: 没有可用的项目ID');
+      return;
+    }
 
     try {
-      const response = await api.getProject(currentProject.id!);
+      const response = await api.getProject(targetProjectId);
       if (response.data) {
-        set({ currentProject: normalizeProject(response.data) });
+        const project = normalizeProject(response.data);
+        set({ currentProject: project });
+        // 确保 localStorage 中保存了项目ID
+        localStorage.setItem('currentProjectId', project.id!);
       }
     } catch (error: any) {
       set({ error: error.message || '同步项目失败' });
