@@ -394,6 +394,11 @@ export interface Material {
   url: string;
   relative_path: string;
   created_at: string;
+  // 可选的附加信息：用于展示友好名称
+  prompt?: string;
+  original_filename?: string;
+  source_filename?: string;
+  name?: string;
 }
 
 /**
@@ -448,6 +453,14 @@ export const uploadMaterial = async (
     : `/api/projects/${projectId || 'none'}/materials/upload${projectId ? '' : '?project_id=none'}`;
   
   const response = await apiClient.post<ApiResponse<Material>>(url, formData);
+  return response.data;
+};
+
+/**
+ * 删除素材
+ */
+export const deleteMaterial = async (materialId: string): Promise<ApiResponse<{ id: string }>> => {
+  const response = await apiClient.delete<ApiResponse<{ id: string }>>(`/api/materials/${materialId}`);
   return response.data;
 };
 

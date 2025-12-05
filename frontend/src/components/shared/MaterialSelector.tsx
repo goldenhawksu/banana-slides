@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ImageIcon, RefreshCw, Upload, Sparkles, X } from 'lucide-react';
 import { Button, useToast, Modal } from '@/components/shared';
-import { listMaterials, uploadMaterial, listProjects, type Material } from '@/api/endpoints';
+import { listMaterials, uploadMaterial, listProjects, deleteMaterial, type Material } from '@/api/endpoints';
 import type { Project } from '@/types';
 import { getImageUrl } from '@/api/client';
 import { MaterialGeneratorModal } from './MaterialGeneratorModal';
@@ -35,6 +35,7 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
   const { show } = useToast();
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [filterProjectId, setFilterProjectId] = useState<string>(projectId || 'all');
@@ -72,6 +73,15 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
     }
   };
 
+  const getMaterialKey = (m: Material) => m.id || m.url;
+  const getMaterialDisplayName = (m: Material) =>
+    (m.prompt && m.prompt.trim()) ||
+    (m.name && m.name.trim()) ||
+    (m.original_filename && m.original_filename.trim()) ||
+    (m.source_filename && m.source_filename.trim()) ||
+    m.filename ||
+    m.url;
+
   const loadMaterials = async () => {
     setIsLoading(true);
     try {
@@ -96,10 +106,11 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
   };
 
   const handleSelectMaterial = (material: Material) => {
+    const key = getMaterialKey(material);
     if (multiple) {
       const newSelected = new Set(selectedMaterials);
-      if (newSelected.has(material.url)) {
-        newSelected.delete(material.url);
+      if (newSelected.has(key)) {
+        newSelected.delete(key);
       } else {
         if (maxSelection && newSelected.size >= maxSelection) {
           show({
@@ -108,16 +119,16 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
           });
           return;
         }
-        newSelected.add(material.url);
+        newSelected.add(key);
       }
       setSelectedMaterials(newSelected);
     } else {
-      setSelectedMaterials(new Set([material.url]));
+      setSelectedMaterials(new Set([key]));
     }
   };
 
   const handleConfirm = () => {
-    const selected = materials.filter((m) => selectedMaterials.has(m.url));
+    const selected = materials.filter((m) => selectedMaterials.has(getMaterialKey(m)));
     if (selected.length === 0) {
       show({ message: '请至少选择一个素材', type: 'info' });
       return;
@@ -176,6 +187,49 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
   const handleGeneratorClose = () => {
     setIsGeneratorOpen(false);
     loadMaterials(); // 重新加载素材列表
+  };
+
+  const handleDeleteMaterial = async (
+    e: React.MouseEvent<HTMLButtonElement, MouseEvent>,
+    material: Material
+  ) => {
+    e.stopPropagation();
+    const materialId = material.id;
+    const key = getMaterialKey(material);
+
+    if (!materialId) {
+      show({ message: '无法删除：缺少素材ID', type: 'error' });
+      return;
+    }
+
+    setDeletingIds((prev) => {
+      const next = new Set(prev);
+      next.add(materialId);
+      return next;
+    });
+
+    try {
+      await deleteMaterial(materialId);
+      setMaterials((prev) => prev.filter((m) => getMaterialKey(m) !== key));
+      setSelectedMaterials((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      show({ message: '素材已删除', type: 'success' });
+    } catch (error: any) {
+      console.error('删除素材失败:', error);
+      show({
+        message: error?.response?.data?.error?.message || error.message || '删除素材失败',
+        type: 'error',
+      });
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(materialId);
+        return next;
+      });
+    }
   };
 
   const renderProjectLabel = (p: Project) => {
@@ -267,7 +321,7 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
               <div className="text-gray-400">加载中...</div>
             </div>
           ) : materials.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400 p-4">
               <ImageIcon size={48} className="mb-4 opacity-50" />
               <div className="text-sm">暂无素材</div>
               <div className="text-xs mt-1">
@@ -275,12 +329,14 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
               </div>
             </div>
           ) : (
-          <div className="grid grid-cols-4 gap-4 max-h-96 overflow-y-auto">
+          <div className="grid grid-cols-4 gap-4 max-h-96 overflow-y-auto  p-4">
             {materials.map((material) => {
-              const isSelected = selectedMaterials.has(material.url);
+              const key = getMaterialKey(material);
+              const isSelected = selectedMaterials.has(key);
+              const isDeleting = material.id ? deletingIds.has(material.id) : false;
               return (
                 <div
-                  key={material.url}
+                  key={key}
                   onClick={() => handleSelectMaterial(material)}
                   className={`aspect-video rounded-lg border-2 cursor-pointer transition-all relative group ${
                     isSelected
@@ -290,25 +346,18 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
                 >
                   <img
                     src={getImageUrl(material.url)}
-                    alt={material.filename}
+                    alt={getMaterialDisplayName(material)}
                     className="absolute inset-0 w-full h-full object-cover"
                   />
                   {/* 删除按钮：右上角，圆心在角上 */}
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMaterials((prev) => prev.filter((m) => m.url !== material.url));
-                      setSelectedMaterials((prev) => {
-                        const next = new Set(prev);
-                        next.delete(material.url);
-                        return next;
-                      });
-                    }}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow z-10"
+                    onClick={(e) => handleDeleteMaterial(e, material)}
+                    disabled={isDeleting}
+                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow z-10 disabled:opacity-60 disabled:cursor-not-allowed"
                     aria-label="删除素材"
                   >
-                    <X size={12} />
+                    {isDeleting ? <RefreshCw size={12} className="animate-spin" /> : <X size={12} />}
                   </button>
                   {isSelected && (
                     <div className="absolute inset-0 bg-banana-500 bg-opacity-20 flex items-center justify-center">
@@ -319,7 +368,7 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
                   )}
                   {/* 悬停时显示文件名 */}
                   <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 truncate opacity-0 group-hover:opacity-100 transition-opacity">
-                    {material.filename}
+                    {getMaterialDisplayName(material)}
                   </div>
                 </div>
               );
