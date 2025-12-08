@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, FileText, FileEdit, ImagePlus, Paperclip, Palette, Lightbulb, Search } from 'lucide-react';
-import { Button, Textarea, Card, useToast, MaterialGeneratorModal, ReferenceFileList, ReferenceFileSelector, FilePreviewModal } from '@/components/shared';
+import { Button, Textarea, Card, useToast, MaterialGeneratorModal, ReferenceFileList, ReferenceFileSelector, FilePreviewModal, ImagePreviewList } from '@/components/shared';
 import { TemplateSelector, getTemplateFile } from '@/components/shared/TemplateSelector';
-import { listUserTemplates, type UserTemplate, uploadReferenceFile, type ReferenceFile, associateFileToProject, triggerFileParse } from '@/api/endpoints';
+import { listUserTemplates, type UserTemplate, uploadReferenceFile, type ReferenceFile, associateFileToProject, triggerFileParse, uploadMaterial } from '@/api/endpoints';
 import { useProjectStore } from '@/store/useProjectStore';
 
 type CreationType = 'idea' | 'outline' | 'description';
@@ -26,6 +26,7 @@ export const Home: React.FC = () => {
   const [isFileSelectorOpen, setIsFileSelectorOpen] = useState(false);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 检查是否有当前项目 & 加载用户模板
   useEffect(() => {
@@ -51,7 +52,7 @@ export const Home: React.FC = () => {
     setIsMaterialModalOpen(true);
   };
 
-  // 检测粘贴事件，自动上传文件
+  // 检测粘贴事件，自动上传文件和图片
   const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     console.log('Paste event triggered');
     const items = e.clipboardData?.items;
@@ -62,7 +63,7 @@ export const Home: React.FC = () => {
 
     console.log('Clipboard items:', items.length);
     
-    // 检查是否有文件
+    // 检查是否有文件或图片
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       console.log(`Item ${i}:`, { kind: item.kind, type: item.type });
@@ -74,7 +75,15 @@ export const Home: React.FC = () => {
         if (file) {
           console.log('File details:', { name: file.name, type: file.type, size: file.size });
           
-          // 检查文件类型
+          // 检查是否是图片
+          if (file.type.startsWith('image/')) {
+            console.log('Image detected, uploading...');
+            e.preventDefault(); // 阻止默认粘贴行为
+            await handleImageUpload(file);
+            return;
+          }
+          
+          // 检查文件类型（参考文件）
           const allowedExtensions = ['pdf', 'docx', 'pptx', 'doc', 'ppt', 'xlsx', 'xls', 'csv', 'txt', 'md'];
           const fileExt = file.name.split('.').pop()?.toLowerCase();
           
@@ -93,10 +102,80 @@ export const Home: React.FC = () => {
     }
   };
 
+  // 上传图片
+  // 在 Home 页面，图片始终上传为全局素材（不关联项目），因为此时还没有项目
+  const handleImageUpload = async (file: File) => {
+    if (isUploadingFile) return;
+
+    setIsUploadingFile(true);
+    try {
+      // 显示上传中提示
+      show({ message: '正在上传图片...', type: 'info' });
+      
+      // 保存当前光标位置
+      const cursorPosition = textareaRef.current?.selectionStart || content.length;
+      
+      // 上传图片到素材库（全局素材）
+      const response = await uploadMaterial(file, null);
+      
+      if (response?.data?.url) {
+        const imageUrl = response.data.url;
+        
+        // 生成markdown图片链接
+        const markdownImage = `![image](${imageUrl})`;
+        
+        // 在光标位置插入图片链接
+        setContent(prev => {
+          const before = prev.slice(0, cursorPosition);
+          const after = prev.slice(cursorPosition);
+          
+          // 如果光标前有内容且不以换行结尾，添加换行
+          const prefix = before && !before.endsWith('\n') ? '\n' : '';
+          // 如果光标后有内容且不以换行开头，添加换行
+          const suffix = after && !after.startsWith('\n') ? '\n' : '';
+          
+          return before + prefix + markdownImage + suffix + after;
+        });
+        
+        // 恢复光标位置（移动到插入内容之后）
+        setTimeout(() => {
+          if (textareaRef.current) {
+            const newPosition = cursorPosition + (content.slice(0, cursorPosition) && !content.slice(0, cursorPosition).endsWith('\n') ? 1 : 0) + markdownImage.length;
+            textareaRef.current.selectionStart = newPosition;
+            textareaRef.current.selectionEnd = newPosition;
+            textareaRef.current.focus();
+          }
+        }, 0);
+        
+        show({ message: '图片上传成功！已插入到光标位置', type: 'success' });
+      } else {
+        show({ message: '图片上传失败：未返回图片信息', type: 'error' });
+      }
+    } catch (error: any) {
+      console.error('图片上传失败:', error);
+      show({ 
+        message: `图片上传失败: ${error?.response?.data?.error?.message || error.message || '未知错误'}`, 
+        type: 'error' 
+      });
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
   // 上传文件
   // 在 Home 页面，文件始终上传为全局文件（不关联项目），因为此时还没有项目
   const handleFileUpload = async (file: File) => {
     if (isUploadingFile) return;
+
+    // 检查文件大小（前端预检查）
+    const maxSize = 200 * 1024 * 1024; // 200MB
+    if (file.size > maxSize) {
+      show({ 
+        message: `文件过大：${(file.size / 1024 / 1024).toFixed(1)}MB，最大支持 200MB`, 
+        type: 'error' 
+      });
+      return;
+    }
 
     // 检查是否是PPT文件，提示建议使用PDF
     const fileExt = file.name.split('.').pop()?.toLowerCase();
@@ -138,10 +217,19 @@ export const Home: React.FC = () => {
       }
     } catch (error: any) {
       console.error('文件上传失败:', error);
-      show({ 
-        message: `文件上传失败: ${error?.response?.data?.error?.message || error.message || '未知错误'}`, 
-        type: 'error' 
-      });
+      
+      // 特殊处理413错误
+      if (error?.response?.status === 413) {
+        show({ 
+          message: `文件过大：${(file.size / 1024 / 1024).toFixed(1)}MB，最大支持 200MB`, 
+          type: 'error' 
+        });
+      } else {
+        show({ 
+          message: `文件上传失败: ${error?.response?.data?.error?.message || error.message || '未知错误'}`, 
+          type: 'error' 
+        });
+      }
     } finally {
       setIsUploadingFile(false);
     }
@@ -184,6 +272,22 @@ export const Home: React.FC = () => {
   const selectedFileIds = useMemo(() => {
     return referenceFiles.map(f => f.id);
   }, [referenceFiles]);
+
+  // 从编辑框内容中移除指定的图片markdown链接
+  const handleRemoveImage = (imageUrl: string) => {
+    setContent(prev => {
+      // 移除所有匹配该URL的markdown图片链接
+      const imageRegex = new RegExp(`!\\[[^\\]]*\\]\\(${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`, 'g');
+      let newContent = prev.replace(imageRegex, '');
+      
+      // 清理多余的空行（最多保留一个空行）
+      newContent = newContent.replace(/\n{3,}/g, '\n\n');
+      
+      return newContent.trim();
+    });
+    
+    show({ message: '已移除图片', type: 'success' });
+  };
 
   // 文件选择变化
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -452,6 +556,7 @@ export const Home: React.FC = () => {
           <div className="relative mb-2 group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-banana-400 to-orange-400 rounded-lg opacity-0 group-hover:opacity-20 blur transition-opacity duration-300"></div>
             <Textarea
+              ref={textareaRef}
               placeholder={tabConfig[activeTab].placeholder}
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -497,6 +602,13 @@ export const Home: React.FC = () => {
             accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md"
             onChange={handleFileSelect}
             className="hidden"
+          />
+
+          {/* 图片预览列表 */}
+          <ImagePreviewList
+            content={content}
+            onRemoveImage={handleRemoveImage}
+            className="mb-4"
           />
 
           <ReferenceFileList

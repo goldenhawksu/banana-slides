@@ -46,11 +46,10 @@ def create_app():
     """Application factory"""
     app = Flask(__name__)
     
-    # Basic configuration
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Load configuration from Config class
+    app.config.from_object(Config)
     
-    # Database configuration (use absolute path)
+    # Override with environment-specific paths (use absolute path)
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     instance_dir = os.path.join(backend_dir, 'instance')
     os.makedirs(instance_dir, exist_ok=True)
@@ -58,31 +57,13 @@ def create_app():
     db_path = os.path.join(instance_dir, 'database.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     
-    # File storage configuration
+    # Ensure upload folder exists
     project_root = os.path.dirname(backend_dir)
     upload_folder = os.path.join(project_root, 'uploads')
     os.makedirs(upload_folder, exist_ok=True)
-    
     app.config['UPLOAD_FOLDER'] = upload_folder
-    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-    app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    app.config['ALLOWED_REFERENCE_FILE_EXTENSIONS'] = Config.ALLOWED_REFERENCE_FILE_EXTENSIONS
     
-    # AI configuration
-    app.config['GOOGLE_API_KEY'] = os.getenv('GOOGLE_API_KEY', '')
-    app.config['GOOGLE_API_BASE'] = os.getenv('GOOGLE_API_BASE', '')
-    app.config['MAX_DESCRIPTION_WORKERS'] = int(os.getenv('MAX_DESCRIPTION_WORKERS', '5'))
-    app.config['MAX_IMAGE_WORKERS'] = int(os.getenv('MAX_IMAGE_WORKERS', '8'))
-    app.config['DEFAULT_ASPECT_RATIO'] = "16:9"
-    app.config['DEFAULT_RESOLUTION'] = "2K"
-    app.config['LOG_LEVEL'] = os.getenv('LOG_LEVEL', 'INFO').upper()
-    
-    # MinerU configuration
-    app.config['MINERU_TOKEN'] = os.getenv('MINERU_TOKEN', '')
-    app.config['MINERU_API_BASE'] = os.getenv('MINERU_API_BASE', 'https://mineru.net')
-    app.config['IMAGE_CAPTION_MODEL'] = os.getenv('IMAGE_CAPTION_MODEL', 'gemini-2.5-flash')
-    
-    # CORS configuration
+    # CORS configuration (parse from environment)
     raw_cors = os.getenv('CORS_ORIGINS', 'http://localhost:3000')
     if raw_cors.strip() == '*':
         cors_origins = '*'

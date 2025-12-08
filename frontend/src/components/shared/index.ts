@@ -18,5 +18,6 @@ export { GithubLink } from './GithubLink';
 export { Markdown } from './Markdown';
 export { AiRefineInput } from './AiRefineInput';
 export { ShimmerOverlay } from './ShimmerOverlay';
+export { ImagePreviewList } from './ImagePreviewList';
 
 

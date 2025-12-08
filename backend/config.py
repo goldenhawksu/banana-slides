@@ -37,7 +37,7 @@ class Config:
     
     # 文件存储配置
     UPLOAD_FOLDER = os.path.join(PROJECT_ROOT, 'uploads')
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+    MAX_CONTENT_LENGTH = 200 * 1024 * 1024  # 200MB max file size
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     ALLOWED_REFERENCE_FILE_EXTENSIONS = {'pdf', 'docx', 'pptx', 'doc', 'ppt', 'xlsx', 'xls', 'csv', 'txt', 'md'}
     
@@ -59,6 +59,9 @@ class Config:
     # 图片生成配置
     DEFAULT_ASPECT_RATIO = "16:9"
     DEFAULT_RESOLUTION = "2K"
+    
+    # 日志配置
+    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
     
     # CORS配置
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(',')
