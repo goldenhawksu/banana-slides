@@ -148,6 +148,10 @@ jobs:
     name: Docker Environment Tests
     runs-on: ubuntu-latest
     needs: [backend-integration-test, frontend-test]
+    # Set environment variable from secret for use in if conditions
+    # (secrets cannot be used directly in if conditions)
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
     
     steps:
       - name: Checkout code
@@ -158,9 +162,16 @@ jobs:
           # Use generic script to automatically handle all environment variable replacements
           chmod +x scripts/setup-env-from-secrets.sh
           ./scripts/setup-env-from-secrets.sh
+          
+          # E2E tests use Gemini format (full flow testing)
+          # Update .env to use Gemini format for E2E tests
+          sed -i 's/^AI_PROVIDER_FORMAT=.*/AI_PROVIDER_FORMAT=gemini/' .env || echo "AI_PROVIDER_FORMAT=gemini" >> .env
+          echo "E2E tests will use Gemini format"
+          grep "^AI_PROVIDER_FORMAT=" .env
         env:
           # Export all Secrets as environment variables (script will auto-detect and replace)
-          AI_PROVIDER_FORMAT: ${{ secrets.AI_PROVIDER_FORMAT }}
+          # E2E tests fixed to use Gemini format
+          AI_PROVIDER_FORMAT: gemini
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_API_BASE: ${{ secrets.GOOGLE_API_BASE }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -220,6 +231,59 @@ jobs:
           chmod +x scripts/test_docker_environment.sh
           AUTO_CLEANUP=false ./scripts/test_docker_environment.sh
       
+      - name: Setup Node.js for E2E tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install Playwright
+        run: |
+          npm install -D @playwright/test
+          npx playwright install --with-deps chromium
+      
+      - name: Run basic E2E tests
+        run: |
+          # Run basic UI tests (no real API dependency)
+          npx playwright test home.spec.ts create-ppt.spec.ts
+        env:
+          CI: true
+        continue-on-error: false
+      
+      - name: Run full flow E2E tests (requires real API)
+        if: env.GOOGLE_API_KEY != '' && env.GOOGLE_API_KEY != 'mock-api-key-for-testing'
+        run: |
+          # Run full flow tests (from creation to PPT export)
+          # Using Gemini format for full flow testing
+          echo "Full E2E test - Gemini format"
+          npx playwright test api-full-flow.spec.ts --workers=1
+        env:
+          CI: true
+        timeout-minutes: 15
+        continue-on-error: false
+      
+      - name: Skip full flow test
+        if: env.GOOGLE_API_KEY == '' || env.GOOGLE_API_KEY == 'mock-api-key-for-testing'
+        run: |
+          echo "Skipping full flow E2E test"
+          echo "Reason: GOOGLE_API_KEY not configured or using mock key"
+          echo "Note: OpenAI format compatibility is verified in integration tests"
+      
+      - name: Upload E2E test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+      
+      - name: Upload E2E failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: test-results/
+          retention-days: 7
+      
       - name: View container logs (on failure)
         if: failure()
         run: |
@@ -235,129 +299,10 @@ jobs:
           docker system prune -f
 
   # ================================
-  # E2E Tests
+  # E2E Tests (已合并到docker-test中，避免重复构建)
   # ================================
-  e2e-test:
-    name: End-to-End Tests
-    runs-on: ubuntu-latest
-    needs: docker-test
-    # Note: Full E2E tests use Gemini format only
-    # OpenAI format compatibility is verified in backend-integration-test (equivalent substitution principle)
-    env:
-      # Set environment variable from secret for use in if conditions
-      # (secrets cannot be used directly in if conditions)
-      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      
-      - name: Install Playwright
-        run: |
-          npm install -D @playwright/test
-          npx playwright install --with-deps chromium
-      
-      - name: Setup environment (with real API key)
-        run: |
-          # Use generic script to automatically handle all environment variable replacements
-          chmod +x scripts/setup-env-from-secrets.sh
-          ./scripts/setup-env-from-secrets.sh
-          
-          # E2E tests use Gemini format (full flow testing)
-          echo "E2E tests using Gemini format"
-          grep "^AI_PROVIDER_FORMAT=" .env
-        env:
-          # Export all Secrets as environment variables (script will auto-detect and replace)
-          # E2E tests fixed to use Gemini format
-          AI_PROVIDER_FORMAT: gemini
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          GOOGLE_API_BASE: ${{ secrets.GOOGLE_API_BASE }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
-          OPENAI_TIMEOUT: ${{ secrets.OPENAI_TIMEOUT }}
-          OPENAI_MAX_RETRIES: ${{ secrets.OPENAI_MAX_RETRIES }}
-          TEXT_MODEL: ${{ secrets.TEXT_MODEL }}
-          IMAGE_MODEL: ${{ secrets.IMAGE_MODEL }}
-          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          FLASK_ENV: ${{ secrets.FLASK_ENV }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          PORT: ${{ secrets.PORT }}
-          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-          MAX_DESCRIPTION_WORKERS: ${{ secrets.MAX_DESCRIPTION_WORKERS }}
-          MAX_IMAGE_WORKERS: ${{ secrets.MAX_IMAGE_WORKERS }}
-          MINERU_TOKEN: ${{ secrets.MINERU_TOKEN }}
-          MINERU_API_BASE: ${{ secrets.MINERU_API_BASE }}
-          IMAGE_CAPTION_MODEL: ${{ secrets.IMAGE_CAPTION_MODEL }}
-          OUTPUT_LANGUAGE: ${{ secrets.OUTPUT_LANGUAGE }}
-      
-      - name: Start Docker environment
-        run: |
-          docker compose up -d
-          sleep 25
-      
-      - name: Health check
-        run: |
-          # Wait for services to be fully ready
-          for i in {1..30}; do
-            if curl -f http://localhost:5000/health && curl -f http://localhost:3000; then
-              echo "Services are ready"
-              break
-            fi
-            echo "Waiting for services to start... ($i/30)"
-            sleep 2
-          done
-      
-      - name: Run basic E2E tests
-        run: |
-          # Run basic UI tests (no real API dependency)
-          npx playwright test home.spec.ts create-ppt.spec.ts
-        env:
-          CI: true
-        continue-on-error: false
-      
-      - name: Run full flow E2E tests (requires real API)
-        if: env.GOOGLE_API_KEY != ''
-        run: |
-          # Run full flow tests (from creation to PPT export)
-          # Using Gemini format for full flow testing
-          echo "Full E2E test - Gemini format"
-          npx playwright test api-full-flow.spec.ts --workers=1
-        env:
-          CI: true
-        timeout-minutes: 15
-        continue-on-error: false
-      
-      - name: Skip full flow test
-        if: env.GOOGLE_API_KEY == ''
-        run: |
-          echo "Skipping full flow E2E test"
-          echo "Reason: GOOGLE_API_KEY not configured"
-          echo "Note: OpenAI format compatibility is verified in integration tests"
-      
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
-      
-      - name: Upload failure screenshots
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-screenshots
-          path: test-results/
-          retention-days: 7
-      
-      - name: Cleanup
-        if: always()
-        run: docker compose down -v
+  # 注意：E2E测试现在在docker-test job中运行，复用已构建的Docker环境
+  # 这样可以避免重复构建，节省时间和资源
 
   # ================================
   # Security Scan
@@ -394,7 +339,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [backend-unit-test, backend-integration-test, frontend-test, docker-test, e2e-test, security-scan]
+    needs: [backend-unit-test, backend-integration-test, frontend-test, docker-test, security-scan]
     if: always()
     
     steps:
@@ -408,8 +353,7 @@ jobs:
           echo "  Backend unit tests: ${{ needs.backend-unit-test.result }}"
           echo "  Backend integration tests: ${{ needs.backend-integration-test.result }}"
           echo "  Frontend tests: ${{ needs.frontend-test.result }}"
-          echo "  Docker environment tests: ${{ needs.docker-test.result }}"
-          echo "  E2E tests: ${{ needs.e2e-test.result }}"
+          echo "  Docker environment tests (包含E2E): ${{ needs.docker-test.result }}"
           echo "  Security scan: ${{ needs.security-scan.result }}"
           echo ""
       
@@ -418,8 +362,7 @@ jobs:
           needs.backend-unit-test.result != 'success' ||
           needs.backend-integration-test.result != 'success' ||
           needs.frontend-test.result != 'success' ||
-          needs.docker-test.result != 'success' ||
-          needs.e2e-test.result != 'success'
+          needs.docker-test.result != 'success'
         run: |
           echo "Some tests failed, please check the logs"
           exit 1
@@ -429,8 +372,7 @@ jobs:
           needs.backend-unit-test.result == 'success' &&
           needs.backend-integration-test.result == 'success' &&
           needs.frontend-test.result == 'success' &&
-          needs.docker-test.result == 'success' &&
-          needs.e2e-test.result == 'success'
+          needs.docker-test.result == 'success'
         run: |
           echo "All tests passed! Ready to merge"
 
