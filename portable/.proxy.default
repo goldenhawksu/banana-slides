@@ -1,0 +1,20 @@
+# Banana Slides 代理配置
+# 用于国内网络环境优化
+
+# 代理启用开关 (true=启用, false=禁用)
+PROXY_ENABLED=false
+
+# 代理服务器地址 (支持 http/https/socks5)
+# 默认使用 SOCKS5 代理
+PROXY_SERVER=socks5://socks.spdt.work:63000
+
+# 可选的其他代理示例:
+# HTTP 代理: http://proxy.example.com:8080
+# HTTPS 代理: https://proxy.example.com:8443
+# SOCKS5 代理: socks5://proxy.example.com:1080
+# 带认证: http://user:pass@proxy.example.com:8080
+
+# 说明:
+# 1. 默认不启用代理 (PROXY_ENABLED=false)
+# 2. 如需启用,使用 menu.ps1 的"配置代理"功能
+# 3. 或手动编辑此文件,将 PROXY_ENABLED 改为 true
