@@ -29,24 +29,63 @@ if %errorlevel% equ 0 (
     echo   [✓] uv 已安装 - 将自动管理 Python 环境
     set "USE_UV_PYTHON=true"
 ) else (
-    set "USE_UV_PYTHON=false"
-    REM 如果没有 uv,则检查 Python
-    python --version >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo [错误] 未找到 uv 或 Python!
+    echo   [!] 未检测到 uv 环境
+    echo.
+    echo   uv 是现代化的 Python 包管理器,可以自动管理 Python 环境
+    echo   推荐使用 uv 以获得更好的性能和体验
+    echo.
+    set /p "install_uv=是否自动安装 uv? (Y=是, N=否,使用系统 Python): "
+
+    REM 去除可能的空格并转换为大写进行比较
+    if /i "!install_uv!"=="Y" (
         echo.
-        echo 请选择以下任一方式:
+        echo   [开始安装 uv...]
+        echo   正在下载并安装 uv,请稍候...
         echo.
-        echo   方式1 - 安装 uv (推荐^):
-        echo   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+        REM 使用 PowerShell 安装 uv
+        powershell -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+
+        REM 检查 uv 是否安装成功(通过检查可执行文件是否存在)
+        if exist "%USERPROFILE%\.local\bin\uv.exe" (
+            echo.
+            echo   [✓] uv 安装成功!
+            echo.
+            echo   [重要] 需要重启此脚本以使 uv 生效
+            echo   请关闭此窗口,然后重新运行 "一键启动.bat"
+            echo.
+            pause
+            exit /b 0
+        ) else (
+            echo.
+            echo   [警告] uv 安装失败,将尝试使用系统 Python
+            echo.
+            set "USE_UV_PYTHON=false"
+        )
+    ) else (
+        set "USE_UV_PYTHON=false"
         echo.
-        echo   方式2 - 安装 Python 3.10+:
-        echo   https://www.python.org/downloads/
-        echo.
-        pause
-        exit /b 1
+        echo   [提示] 已选择使用系统 Python
     )
-    echo   [✓] Python 已安装
+
+    REM 如果没有安装 uv 或安装失败,则检查系统 Python
+    if /i "!USE_UV_PYTHON!"=="false" (
+        python --version >nul 2>&1
+        if %errorlevel% neq 0 (
+            echo [错误] 未找到 Python!
+            echo.
+            echo 请选择以下任一方式:
+            echo.
+            echo   方式1 - 重新运行此脚本并选择安装 uv (推荐^)
+            echo.
+            echo   方式2 - 手动安装 Python 3.10+:
+            echo   https://www.python.org/downloads/
+            echo.
+            pause
+            exit /b 1
+        )
+        echo   [✓] Python 已安装
+    )
 )
 
 REM 检查 Node.js
