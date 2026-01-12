@@ -94,19 +94,50 @@ if not exist "%PROJECT_ROOT%\.env" (
     echo [警告] 未找到 .env 文件!
     echo.
 
-    REM 优先使用 portable 目录下的默认配置
+    REM 按优先级查找配置模板文件
+    REM 优先级: 1. portable\.env.default  2. .env.example  3. 手动创建
     if exist "%SCRIPT_DIR%.env.default" (
         echo 正在从 portable\.env.default 复制默认配置...
         copy "%SCRIPT_DIR%.env.default" "%PROJECT_ROOT%\.env" >nul
-        echo   [成功] 已创建 .env 文件 (使用默认配置)
-    ) else if exist "%PROJECT_ROOT%\.env.example" (
-        echo 正在从 .env.example 复制...
-        copy "%PROJECT_ROOT%\.env.example" "%PROJECT_ROOT%\.env" >nul
-        echo   [成功] 已创建 .env 文件
+        if exist "%PROJECT_ROOT%\.env" (
+            echo   [成功] 已创建 .env 文件 (使用 portable\.env.default^)
+        ) else (
+            echo [错误] 复制配置文件失败!
+            pause
+            exit /b 1
+        )
     ) else (
-        echo [错误] 未找到配置模板文件!
-        pause
-        exit /b 1
+        if exist "%PROJECT_ROOT%\.env.example" (
+            echo [提示] portable\.env.default 不存在,使用备选方案
+            echo 正在从 .env.example 复制...
+            copy "%PROJECT_ROOT%\.env.example" "%PROJECT_ROOT%\.env" >nul
+            if exist "%PROJECT_ROOT%\.env" (
+                echo   [成功] 已创建 .env 文件 (使用 .env.example^)
+            ) else (
+                echo [错误] 复制配置文件失败!
+                pause
+                exit /b 1
+            )
+        ) else (
+            echo [错误] 未找到配置模板文件!
+            echo.
+            echo 缺少以下文件:
+            echo   1. portable\.env.default (推荐^)
+            echo   2. .env.example (备选^)
+            echo.
+            echo 请手动创建 .env 文件,包含以下必需配置:
+            echo.
+            echo   AI_PROVIDER_FORMAT=gemini
+            echo   GOOGLE_API_BASE=https://your-api-endpoint
+            echo   GOOGLE_API_KEY=your-api-key
+            echo   TEXT_MODEL=gemini-3-flash-preview
+            echo   IMAGE_MODEL=gemini-3-pro-image-preview
+            echo.
+            echo 详细配置说明请参考项目文档。
+            echo.
+            pause
+            exit /b 1
+        )
     )
 
     echo.
