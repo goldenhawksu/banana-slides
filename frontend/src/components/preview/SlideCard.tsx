@@ -27,7 +27,7 @@ export const SlideCard: React.FC<SlideCardProps> = ({
   const imageUrl = page.generated_image_path
     ? getImageUrl(page.generated_image_path, page.updated_at)
     : '';
-  
+
   const generating = isGenerating || page.status === 'GENERATING';
 
   return (
@@ -39,15 +39,22 @@ export const SlideCard: React.FC<SlideCardProps> = ({
     >
       {/* 缩略图 */}
       <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden mb-2">
-        {generating ? (
-          <Skeleton className="w-full h-full" />
-        ) : page.generated_image_path ? (
+        {page.generated_image_path ? (
           <>
             <img
               src={imageUrl}
               alt={`Slide ${index + 1}`}
               className="w-full h-full object-cover"
             />
+            {/* 正在生成时显示半透明遮罩和加载指示器 */}
+            {generating && (
+              <div className="absolute inset-0 bg-black/30 flex items-center justify-center backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-2 border-white border-t-transparent" />
+                  <span className="text-xs text-white font-medium">生成中...</span>
+                </div>
+              </div>
+            )}
             {/* 悬停操作 */}
             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
               <button
@@ -63,7 +70,7 @@ export const SlideCard: React.FC<SlideCardProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   confirm(
-                    '确定要删除这一页吗？',
+                    '确定要删除这一页吗?',
                     onDelete,
                     { title: '确认删除', variant: 'danger' }
                   );
@@ -74,6 +81,8 @@ export const SlideCard: React.FC<SlideCardProps> = ({
               </button>
             </div>
           </>
+        ) : generating ? (
+          <Skeleton className="w-full h-full" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-400">
             <div className="text-center">
@@ -82,7 +91,7 @@ export const SlideCard: React.FC<SlideCardProps> = ({
             </div>
           </div>
         )}
-        
+
         {/* 状态标签 */}
         <div className="absolute bottom-2 right-2">
           <StatusBadge status={page.status} />
@@ -103,4 +112,3 @@ export const SlideCard: React.FC<SlideCardProps> = ({
     </div>
   );
 };
-

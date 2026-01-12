@@ -1,4 +1,4 @@
-# Banana Slides - 主菜单 (便携版)
+﻿# Banana Slides - 主菜单 (便携版)
 # PowerShell Script for Windows
 
 # 设置编码
@@ -45,13 +45,49 @@ function Start-Services {
 
     Set-Location $projectRoot
 
+    # 读取代理配置
+    $proxyEnabled = $false
+    $proxyServer = ""
+    $proxyFile = Join-Path $projectRoot ".proxy"
+
+    if (Test-Path $proxyFile) {
+        $content = Get-Content $proxyFile -Raw
+        if ($content -match 'PROXY_ENABLED=true') {
+            $proxyEnabled = $true
+        }
+        if ($content -match 'PROXY_SERVER=(.+)') {
+            $proxyServer = $matches[1].Trim()
+        }
+    }
+
+    # 构建启动命令
+    $backendCmd = "cd '$projectRoot\backend'; "
+    $frontendCmd = "cd '$projectRoot\frontend'; "
+
+    if ($proxyEnabled -and $proxyServer) {
+        Write-Host "[提示] 检测到代理配置已启用" -ForegroundColor Yellow
+        Write-Host "  代理服务器: $proxyServer" -ForegroundColor White
+        Write-Host ""
+
+        # 设置代理环境变量
+        $backendCmd += "`$env:HTTP_PROXY='$proxyServer'; `$env:HTTPS_PROXY='$proxyServer'; `$env:ALL_PROXY='$proxyServer'; "
+        $frontendCmd += "`$env:HTTP_PROXY='$proxyServer'; `$env:HTTPS_PROXY='$proxyServer'; `$env:ALL_PROXY='$proxyServer'; "
+    } else {
+        Write-Host "[提示] 代理未启用,使用直连" -ForegroundColor Gray
+        Write-Host ""
+    }
+
+    # 添加实际启动命令
+    $backendCmd += "uv run alembic upgrade head; uv run python app.py"
+    $frontendCmd += "npm run dev"
+
     Write-Host "[1/2] 启动后端服务..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$projectRoot\backend'; uv run alembic upgrade head; uv run python app.py"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd
     Start-Sleep -Seconds 3
 
     Write-Host ""
     Write-Host "[2/2] 启动前端服务..." -ForegroundColor Yellow
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$projectRoot\frontend'; npm run dev"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontendCmd
     Start-Sleep -Seconds 2
 
     Write-Host ""
@@ -316,7 +352,7 @@ function Configure-Proxy {
     Write-Host "  [1] 启用代理" -ForegroundColor White
     Write-Host "  [2] 禁用代理" -ForegroundColor White
     Write-Host "  [3] 修改代理服务器地址" -ForegroundColor White
-    Write-Host "  [4] 使用默认代理 (socks://socks.spdt.work:63129)" -ForegroundColor White
+    Write-Host "  [4] 使用默认代理 (socks5://socks.spdt.work:63000)" -ForegroundColor White
     Write-Host "  [5] 编辑配置文件" -ForegroundColor White
     Write-Host "  [0] 返回主菜单" -ForegroundColor White
     Write-Host ""
@@ -348,7 +384,7 @@ function Configure-Proxy {
             }
         }
         "4" {
-            (Get-Content $proxyFile) -replace 'PROXY_SERVER=.+', 'PROXY_SERVER=socks://socks.spdt.work:63080' | Set-Content $proxyFile
+            (Get-Content $proxyFile) -replace 'PROXY_SERVER=.+', 'PROXY_SERVER=socks5://socks.spdt.work:63000' | Set-Content $proxyFile
             (Get-Content $proxyFile) -replace 'PROXY_ENABLED=false', 'PROXY_ENABLED=true' | Set-Content $proxyFile
             Write-Host ""
             Write-Host "[成功] 已设置为默认代理并启用" -ForegroundColor Green

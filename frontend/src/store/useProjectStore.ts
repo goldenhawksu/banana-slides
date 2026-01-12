@@ -760,6 +760,32 @@ const debouncedUpdatePage = debounce(
           // 继续轮询，同时同步项目数据以更新页面状态
           console.log(`[批量轮询] Task ${taskId} 处理中，同步项目数据...`);
           await get().syncProject();
+
+          // 关键修复:检查每个页面的状态,已完成的页面立即清除任务记录
+          const { currentProject: updatedProject, pageGeneratingTasks } = get();
+          if (updatedProject) {
+            const newTasks = { ...pageGeneratingTasks };
+            let hasCleared = false;
+
+            pageIds.forEach(pageId => {
+              // 如果该页面的任务ID匹配当前任务
+              if (newTasks[pageId] === taskId) {
+                const page = updatedProject.pages.find(p => p.id === pageId);
+                // 如果页面状态已经是 COMPLETED 且有图片,清除任务记录
+                if (page && page.status === 'COMPLETED' && page.generated_image_path) {
+                  console.log(`[批量轮询] 页面 ${pageId} 已完成，清除任务记录`);
+                  delete newTasks[pageId];
+                  hasCleared = true;
+                }
+              }
+            });
+
+            // 如果有页面被清除,更新状态
+            if (hasCleared) {
+              set({ pageGeneratingTasks: newTasks });
+            }
+          }
+
           console.log(`[批量轮询] Task ${taskId} 处理中，2秒后继续轮询...`);
           setTimeout(poll, 2000);
         } else {
