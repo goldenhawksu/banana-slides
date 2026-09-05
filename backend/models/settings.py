@@ -57,10 +57,25 @@ class Settings(db.Model):
         - 首次创建时，用 Config（也就是 .env）里的值初始化，作为“系统默认值”
         - 之后所有读写都只走数据库，env 只影响初始化/重置逻辑
         """
+        # 延迟导入，避免循环依赖
+        from config import Config
+
         settings = Settings.query.first()
+        if settings and settings.ai_provider_format != Config.AI_PROVIDER_FORMAT:
+            # AI_PROVIDER_FORMAT 在 .env 中被切换，自动同步模型、凭据和语言
+            settings.ai_provider_format = Config.AI_PROVIDER_FORMAT
+            settings.text_model = Config.TEXT_MODEL
+            settings.image_model = Config.IMAGE_MODEL
+            settings.image_caption_model = Config.IMAGE_CAPTION_MODEL
+            settings.output_language = Config.OUTPUT_LANGUAGE
+            if (Config.AI_PROVIDER_FORMAT or '').lower() == 'openai':
+                settings.api_base_url = Config.OPENAI_API_BASE or None
+                settings.api_key = Config.OPENAI_API_KEY or None
+            else:
+                settings.api_base_url = Config.GOOGLE_API_BASE or None
+                settings.api_key = Config.GOOGLE_API_KEY or None
+            db.session.commit()
         if not settings:
-            # 延迟导入，避免循环依赖
-            from config import Config
 
             # 根据 AI_PROVIDER_FORMAT 选择默认 Provider 的 env 配置
             if (Config.AI_PROVIDER_FORMAT or '').lower() == 'openai':

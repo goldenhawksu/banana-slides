@@ -62,16 +62,21 @@ class Config:
     OPENAI_TIMEOUT = float(os.getenv('OPENAI_TIMEOUT', '300.0'))  # 增加到 5 分钟（生成清洁背景图需要很长时间）
     OPENAI_MAX_RETRIES = int(os.getenv('OPENAI_MAX_RETRIES', '2'))  # 减少重试次数，避免过多重试导致累积超时
     
-    # AI 模型配置
-    TEXT_MODEL = os.getenv('TEXT_MODEL', 'gemini-3-flash-preview')
-    IMAGE_MODEL = os.getenv('IMAGE_MODEL', 'gemini-3-pro-image-preview')
+    # AI 模型配置 - 根据 AI_PROVIDER_FORMAT 选择对应的模型环境变量
+    # 用 OPENAI_* / GENAI_* 分别配置，切换 AI_PROVIDER_FORMAT 即自动切换模型
+    _provider = (AI_PROVIDER_FORMAT or 'gemini').lower()
+    if _provider == 'openai':
+        TEXT_MODEL = os.getenv('OPENAI_TEXT_MODEL', os.getenv('TEXT_MODEL', 'gpt-4o'))
+        IMAGE_MODEL = os.getenv('OPENAI_IMAGE_MODEL', os.getenv('IMAGE_MODEL', 'gpt-image-2'))
+        IMAGE_CAPTION_MODEL = os.getenv('OPENAI_IMAGE_CAPTION_MODEL', os.getenv('IMAGE_CAPTION_MODEL', 'gpt-4o'))
+    else:
+        TEXT_MODEL = os.getenv('GENAI_TEXT_MODEL', os.getenv('TEXT_MODEL', 'gemini-2.5-flash'))
+        IMAGE_MODEL = os.getenv('GENAI_IMAGE_MODEL', os.getenv('IMAGE_MODEL', 'gemini-3-pro-image-preview'))
+        IMAGE_CAPTION_MODEL = os.getenv('GENAI_IMAGE_CAPTION_MODEL', os.getenv('IMAGE_CAPTION_MODEL', 'gemini-2.5-flash'))
 
     # MinerU 文件解析服务配置
     MINERU_TOKEN = os.getenv('MINERU_TOKEN', '')
     MINERU_API_BASE = os.getenv('MINERU_API_BASE', 'https://mineru.net')
-    
-    # 图片识别模型配置
-    IMAGE_CAPTION_MODEL = os.getenv('IMAGE_CAPTION_MODEL', 'gemini-3-flash-preview')
     
     # 并发配置
     MAX_DESCRIPTION_WORKERS = int(os.getenv('MAX_DESCRIPTION_WORKERS', '5'))
