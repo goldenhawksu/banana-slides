@@ -169,8 +169,9 @@ if not exist "%PROJECT_ROOT%\.env" (
             echo   AI_PROVIDER_FORMAT=gemini
             echo   GOOGLE_API_BASE=https://your-api-endpoint
             echo   GOOGLE_API_KEY=your-api-key
-            echo   TEXT_MODEL=gemini-3-flash-preview
-            echo   IMAGE_MODEL=gemini-3-pro-image-preview
+            echo   GENAI_TEXT_MODEL=gemini-2.5-flash
+            echo   GENAI_IMAGE_MODEL=gemini-3-pro-image-preview
+            echo   GENAI_IMAGE_CAPTION_MODEL=gemini-2.5-flash
             echo.
             echo 详细配置说明请参考项目文档。
             echo.
