@@ -11,7 +11,7 @@ from sqlalchemy import inspect
 
 
 revision = '007_provider_configs'
-down_revision = '38292967f3ca'
+down_revision = '006_add_export_settings'
 branch_labels = None
 depends_on = None
 
