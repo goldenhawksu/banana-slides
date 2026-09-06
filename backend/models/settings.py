@@ -65,8 +65,18 @@ class Settings(db.Model):
 
     def to_dict(self):
         """Convert to dictionary"""
-        openai_cfg = self.get_provider_config('openai')
-        gemini_cfg = self.get_provider_config('gemini')
+        # 激活 provider 的参数集 = 主列（权威来源，始终最新）
+        # 非激活 provider 的参数集 = JSON blob（上次保存值）
+        active = self.ai_provider_format
+        active_cfg = {
+            'api_base_url':        self.api_base_url,
+            'api_key':             self.api_key,
+            'text_model':          self.text_model,
+            'image_model':         self.image_model,
+            'image_caption_model': self.image_caption_model,
+        }
+        openai_cfg = active_cfg if active == 'openai' else self.get_provider_config('openai')
+        gemini_cfg = active_cfg if active == 'gemini' else self.get_provider_config('gemini')
         return {
             'id': self.id,
             'ai_provider_format': self.ai_provider_format,
