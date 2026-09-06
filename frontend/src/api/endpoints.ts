@@ -829,3 +829,29 @@ export const resetSettings = async (): Promise<ApiResponse<Settings>> => {
   const response = await apiClient.post<ApiResponse<Settings>>('/api/settings/reset');
   return response.data;
 };
+
+/**
+ * 获取各 provider 的 .env 预设值（不含 API Key，只含端点和模型名）
+ * 用于在切换 provider 时预填表单，不写库
+ */
+export interface ProviderPreset {
+  api_base_url: string;
+  text_model: string;
+  image_model: string;
+  image_caption_model: string;
+  has_api_key: boolean;
+}
+
+export const getSettingsPresets = async (): Promise<ApiResponse<{ openai: ProviderPreset; gemini: ProviderPreset }>> => {
+  const response = await apiClient.get<ApiResponse<{ openai: ProviderPreset; gemini: ProviderPreset }>>('/api/settings/presets');
+  return response.data;
+};
+
+/**
+ * 切换 AI Provider 并从 .env 加载该 provider 的完整预设配置（含 API Key，直接写库）
+ * UI 不再直接调用此接口，改由 PUT /api/settings 时后端自动处理
+ */
+export const switchProvider = async (provider: 'openai' | 'gemini'): Promise<ApiResponse<Settings>> => {
+  const response = await apiClient.post<ApiResponse<Settings>>('/api/settings/switch-provider', { provider });
+  return response.data;
+};

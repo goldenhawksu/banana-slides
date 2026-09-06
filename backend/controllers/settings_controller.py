@@ -1,6 +1,7 @@
 """Settings Controller - handles application settings endpoints"""
 
 import logging
+import os
 from flask import Blueprint, request, current_app
 from models import db, Settings
 from utils import success_response, error_response, bad_request
@@ -53,11 +54,22 @@ def update_settings():
         settings = Settings.get_settings()
 
         # Update AI provider format configuration
+        old_provider = settings.ai_provider_format
         if "ai_provider_format" in data:
             provider_format = data["ai_provider_format"]
             if provider_format not in ["openai", "gemini"]:
                 return bad_request("AI provider format must be 'openai' or 'gemini'")
             settings.ai_provider_format = provider_format
+
+            # Provider changed and no api_key supplied → restore from stored blob, then .env
+            if provider_format != old_provider and not data.get("api_key"):
+                stored = settings.get_provider_config(provider_format)
+                if stored.get("api_key"):
+                    settings.api_key = stored["api_key"]
+                elif provider_format == "openai":
+                    settings.api_key = os.getenv("OPENAI_API_KEY") or settings.api_key
+                else:
+                    settings.api_key = os.getenv("GOOGLE_API_KEY") or settings.api_key
 
         # Update API configuration
         if "api_base_url" in data:
@@ -124,6 +136,10 @@ def update_settings():
                 return bad_request("Output language must be 'zh', 'en', 'ja', or 'auto'")
 
         settings.updated_at = datetime.now(timezone.utc)
+
+        # 将当前 provider 的完整参数集持久化到对应 JSON blob
+        _save_active_provider_config(settings)
+
         db.session.commit()
 
         # Sync to app.config
@@ -180,6 +196,9 @@ def reset_settings():
         settings.max_image_workers = Config.MAX_IMAGE_WORKERS
         settings.updated_at = datetime.now(timezone.utc)
 
+        # 重置两套 provider 参数集为 .env 默认值
+        _reset_provider_configs(settings)
+
         db.session.commit()
 
         # Sync to app.config
@@ -198,6 +217,115 @@ def reset_settings():
             f"Failed to reset settings: {str(e)}",
             500,
         )
+
+
+@settings_bp.route("/presets", methods=["GET"], strict_slashes=False)
+def get_presets():
+    """
+    GET /api/settings/presets - Return .env preset values for each provider (no API keys)
+
+    Used by the frontend to pre-populate the form when the user switches provider,
+    without writing anything to the database yet.
+    """
+    try:
+        presets = {
+            "openai": {
+                "api_base_url":        os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
+                "text_model":          os.getenv("OPENAI_TEXT_MODEL", os.getenv("TEXT_MODEL", "gpt-4o")),
+                "image_model":         os.getenv("OPENAI_IMAGE_MODEL", os.getenv("IMAGE_MODEL", "gpt-image-2")),
+                "image_caption_model": os.getenv("OPENAI_IMAGE_CAPTION_MODEL", os.getenv("IMAGE_CAPTION_MODEL", "gpt-4o")),
+                "has_api_key": bool(os.getenv("OPENAI_API_KEY")),
+            },
+            "gemini": {
+                "api_base_url":        os.getenv("GOOGLE_API_BASE", "https://generativelanguage.googleapis.com"),
+                "text_model":          os.getenv("GENAI_TEXT_MODEL", os.getenv("TEXT_MODEL", "gemini-2.5-flash")),
+                "image_model":         os.getenv("GENAI_IMAGE_MODEL", os.getenv("IMAGE_MODEL", "gemini-3-pro-image-preview")),
+                "image_caption_model": os.getenv("GENAI_IMAGE_CAPTION_MODEL", os.getenv("IMAGE_CAPTION_MODEL", "gemini-2.5-flash")),
+                "has_api_key": bool(os.getenv("GOOGLE_API_KEY")),
+            },
+        }
+        return success_response(presets)
+    except Exception as e:
+        logger.error(f"Error getting presets: {str(e)}")
+        return error_response("GET_PRESETS_ERROR", f"Failed to get presets: {str(e)}", 500)
+
+
+@settings_bp.route("/switch-provider", methods=["POST"], strict_slashes=False)
+def switch_provider():
+    """
+    POST /api/settings/switch-provider - Switch AI provider and load its full preset from .env
+
+    Request Body:
+        { "provider": "openai" | "gemini" }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return bad_request("Request body is required")
+
+        provider = (data.get("provider") or "").lower()
+        if provider not in ["openai", "gemini"]:
+            return bad_request("provider must be 'openai' or 'gemini'")
+
+        settings = Settings.get_settings()
+        settings.ai_provider_format = provider
+
+        if provider == "openai":
+            settings.api_base_url = os.getenv("OPENAI_API_BASE") or None
+            settings.api_key     = os.getenv("OPENAI_API_KEY") or None
+            settings.text_model          = os.getenv("OPENAI_TEXT_MODEL", os.getenv("TEXT_MODEL", "gpt-4o")) or None
+            settings.image_model         = os.getenv("OPENAI_IMAGE_MODEL", os.getenv("IMAGE_MODEL", "gpt-image-2")) or None
+            settings.image_caption_model = os.getenv("OPENAI_IMAGE_CAPTION_MODEL", os.getenv("IMAGE_CAPTION_MODEL", "gpt-4o")) or None
+        else:  # gemini
+            settings.api_base_url = os.getenv("GOOGLE_API_BASE") or None
+            settings.api_key     = os.getenv("GOOGLE_API_KEY") or None
+            settings.text_model          = os.getenv("GENAI_TEXT_MODEL", os.getenv("TEXT_MODEL", "gemini-2.5-flash")) or None
+            settings.image_model         = os.getenv("GENAI_IMAGE_MODEL", os.getenv("IMAGE_MODEL", "gemini-3-pro-image-preview")) or None
+            settings.image_caption_model = os.getenv("GENAI_IMAGE_CAPTION_MODEL", os.getenv("IMAGE_CAPTION_MODEL", "gemini-2.5-flash")) or None
+
+        settings.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        _sync_settings_to_config(settings)
+
+        logger.info(f"Switched AI provider to: {provider}")
+        return success_response(settings.to_dict(), f"Switched to {provider} provider")
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error switching provider: {str(e)}")
+        return error_response("SWITCH_PROVIDER_ERROR", f"Failed to switch provider: {str(e)}", 500)
+
+
+def _save_active_provider_config(settings: Settings) -> None:
+    """Snapshot current active provider's fields into its JSON blob."""
+    cfg = {
+        'api_base_url':        settings.api_base_url,
+        'api_key':             settings.api_key,
+        'text_model':          settings.text_model,
+        'image_model':         settings.image_model,
+        'image_caption_model': settings.image_caption_model,
+    }
+    settings.save_provider_config(settings.ai_provider_format, cfg)
+
+
+def _reset_provider_configs(settings: Settings) -> None:
+    """Reset both provider JSON blobs to their respective .env defaults."""
+    openai_cfg = {
+        'api_base_url':        os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1'),
+        'api_key':             os.getenv('OPENAI_API_KEY', ''),
+        'text_model':          os.getenv('OPENAI_TEXT_MODEL', os.getenv('TEXT_MODEL', 'gpt-4o')),
+        'image_model':         os.getenv('OPENAI_IMAGE_MODEL', os.getenv('IMAGE_MODEL', 'gpt-image-2')),
+        'image_caption_model': os.getenv('OPENAI_IMAGE_CAPTION_MODEL', os.getenv('IMAGE_CAPTION_MODEL', 'gpt-4o')),
+    }
+    gemini_cfg = {
+        'api_base_url':        os.getenv('GOOGLE_API_BASE', 'https://generativelanguage.googleapis.com'),
+        'api_key':             os.getenv('GOOGLE_API_KEY', ''),
+        'text_model':          os.getenv('GENAI_TEXT_MODEL', os.getenv('TEXT_MODEL', 'gemini-2.5-flash')),
+        'image_model':         os.getenv('GENAI_IMAGE_MODEL', os.getenv('IMAGE_MODEL', 'gemini-3-pro-image-preview')),
+        'image_caption_model': os.getenv('GENAI_IMAGE_CAPTION_MODEL', os.getenv('IMAGE_CAPTION_MODEL', 'gemini-2.5-flash')),
+    }
+    settings.save_provider_config('openai', openai_cfg)
+    settings.save_provider_config('gemini', gemini_cfg)
 
 
 def _sync_settings_to_config(settings: Settings):
@@ -231,8 +359,7 @@ def _sync_settings_to_config(settings: Settings):
 
     if settings.api_key is not None:
         old_key = current_app.config.get("GOOGLE_API_KEY")
-        # Only compare existence, not actual value for security
-        if (old_key is None) != (settings.api_key is None):
+        if old_key != settings.api_key:
             ai_config_changed = True
             logger.info("API key updated")
         current_app.config["GOOGLE_API_KEY"] = settings.api_key

@@ -1,4 +1,5 @@
 """Settings model"""
+import json
 from datetime import datetime, timezone
 from . import db
 
@@ -25,11 +26,47 @@ class Settings(db.Model):
     mineru_token = db.Column(db.String(500), nullable=True)  # MinerU API Token（覆盖 Config.MINERU_TOKEN）
     image_caption_model = db.Column(db.String(100), nullable=True)  # 图片识别模型（覆盖 Config.IMAGE_CAPTION_MODEL）
     output_language = db.Column(db.String(10), nullable=False, default='zh')  # 输出语言偏好（zh, en, ja, auto）
+    # 每个 provider 的完整参数集（JSON），切换时恢复各自上次保存的值
+    openai_config = db.Column(db.Text, nullable=True)
+    gemini_config = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    # ── provider config helpers ──────────────────────────────────────────────
+
+    def get_provider_config(self, provider: str) -> dict:
+        """Return the stored config dict for a provider, or {} if not yet saved."""
+        raw = self.openai_config if provider == 'openai' else self.gemini_config
+        if raw:
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return {}
+
+    def save_provider_config(self, provider: str, cfg: dict) -> None:
+        """Persist a provider config dict (including api_key) as JSON."""
+        payload = json.dumps(cfg, ensure_ascii=False)
+        if provider == 'openai':
+            self.openai_config = payload
+        else:
+            self.gemini_config = payload
+
+    @staticmethod
+    def _safe_config_public(cfg: dict) -> dict:
+        """Strip the actual api_key, expose only its length."""
+        return {
+            'api_base_url':        cfg.get('api_base_url', ''),
+            'api_key_length':      len(cfg.get('api_key') or ''),
+            'text_model':          cfg.get('text_model', ''),
+            'image_model':         cfg.get('image_model', ''),
+            'image_caption_model': cfg.get('image_caption_model', ''),
+        }
+
     def to_dict(self):
         """Convert to dictionary"""
+        openai_cfg = self.get_provider_config('openai')
+        gemini_cfg = self.get_provider_config('gemini')
         return {
             'id': self.id,
             'ai_provider_format': self.ai_provider_format,
@@ -45,6 +82,11 @@ class Settings(db.Model):
             'mineru_token_length': len(self.mineru_token) if self.mineru_token else 0,
             'image_caption_model': self.image_caption_model,
             'output_language': self.output_language,
+            # 各 provider 上次保存的参数集（不含真实 key）
+            'provider_configs': {
+                'openai': self._safe_config_public(openai_cfg) if openai_cfg else None,
+                'gemini': self._safe_config_public(gemini_cfg) if gemini_cfg else None,
+            },
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

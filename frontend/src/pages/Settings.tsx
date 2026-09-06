@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Home, Key, Image, Zap, Save, RotateCcw, Globe, FileText } from 'lucide-react';
 import { Button, Input, Card, Loading, useToast, useConfirm } from '@/components/shared';
 import * as api from '@/api/endpoints';
-import type { OutputLanguage } from '@/api/endpoints';
+import type { OutputLanguage, ProviderPreset } from '@/api/endpoints';
 import { OUTPUT_LANGUAGE_OPTIONS } from '@/api/endpoints';
-import type { Settings as SettingsType } from '@/types';
+import type { Settings as SettingsType, ProviderConfigSnapshot } from '@/types';
 
 // 配置项类型定义
 type FieldType = 'text' | 'password' | 'number' | 'select' | 'buttons';
@@ -56,7 +56,7 @@ const settingsSections: SectionConfig[] = [
         key: 'ai_provider_format',
         label: 'AI 提供商格式',
         type: 'buttons',
-        description: '选择 API 请求格式，影响后端如何构造和发送请求。保存设置后生效。',
+        description: '选择后自动预填对应 provider 的端点和模型（来自 .env 预设），点保存后生效；API Key 由后端从 .env 自动载入，无需手动填写。',
         options: [
           { value: 'openai', label: 'OpenAI 格式' },
           { value: 'gemini', label: 'Gemini 格式' },
@@ -192,10 +192,21 @@ export const Settings: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState(initialFormData);
+  const [presets, setPresets] = useState<{ openai: ProviderPreset; gemini: ProviderPreset } | null>(null);
 
   useEffect(() => {
     loadSettings();
+    loadPresets();
   }, []);
+
+  const loadPresets = async () => {
+    try {
+      const response = await api.getSettingsPresets();
+      if (response.data) setPresets(response.data);
+    } catch (error) {
+      console.warn('加载 provider 预设失败:', error);
+    }
+  };
 
   const loadSettings = async () => {
     setIsLoading(true);
@@ -309,6 +320,43 @@ export const Settings: React.FC = () => {
   };
 
   const handleFieldChange = (key: string, value: any) => {
+    // Provider 切换：优先恢复该 provider 上次保存的参数集，再退化到 .env 预设
+    if (key === 'ai_provider_format' && value !== formData.ai_provider_format) {
+      const provider = value as 'openai' | 'gemini';
+      const storedConfig: ProviderConfigSnapshot | null | undefined =
+        settings?.provider_configs?.[provider];
+
+      if (storedConfig) {
+        // 使用 DB 中该 provider 上次保存的值
+        setFormData(prev => ({
+          ...prev,
+          ai_provider_format: provider,
+          api_base_url: storedConfig.api_base_url,
+          api_key: '',
+          text_model: storedConfig.text_model,
+          image_model: storedConfig.image_model,
+          image_caption_model: storedConfig.image_caption_model,
+        }));
+        // 更新 api_key 长度显示为该 provider 的已存储长度
+        setSettings(prev => prev ? { ...prev, api_key_length: storedConfig.api_key_length } : prev);
+      } else if (presets) {
+        // 该 provider 从未保存过 → 退化到 .env 预设
+        const preset = presets[provider];
+        setFormData(prev => ({
+          ...prev,
+          ai_provider_format: provider,
+          api_base_url: preset.api_base_url,
+          api_key: '',
+          text_model: preset.text_model,
+          image_model: preset.image_model,
+          image_caption_model: preset.image_caption_model,
+        }));
+        setSettings(prev => prev ? { ...prev, api_key_length: 0 } : prev);
+      } else {
+        setFormData(prev => ({ ...prev, ai_provider_format: provider }));
+      }
+      return;
+    }
     setFormData(prev => ({ ...prev, [key]: value }));
   };
 
@@ -371,8 +419,11 @@ export const Settings: React.FC = () => {
     }
 
     // text, password, number 类型
-    const placeholder = field.sensitiveField && settings && field.lengthKey
-      ? `已设置（长度: ${settings[field.lengthKey]}）`
+    const keyLength = field.sensitiveField && settings && field.lengthKey
+      ? (settings[field.lengthKey] as number)
+      : 0;
+    const placeholder = field.sensitiveField && keyLength > 0
+      ? `已设置（长度: ${keyLength}）`
       : field.placeholder || '';
 
     return (

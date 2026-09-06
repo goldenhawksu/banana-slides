@@ -117,6 +117,15 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
+// 每个 provider 上次保存的参数集（不含真实 key）
+export interface ProviderConfigSnapshot {
+  api_base_url: string;
+  api_key_length: number;
+  text_model: string;
+  image_model: string;
+  image_caption_model: string;
+}
+
 // 设置
 export interface Settings {
   id: number;
@@ -133,6 +142,11 @@ export interface Settings {
   mineru_token_length: number;
   image_caption_model?: string;
   output_language: 'zh' | 'en' | 'ja' | 'auto';
+  // 各 provider 上次保存的参数集，null 表示从未保存过（会退化到 .env 预设）
+  provider_configs?: {
+    openai: ProviderConfigSnapshot | null;
+    gemini: ProviderConfigSnapshot | null;
+  };
   created_at?: string;
   updated_at?: string;
 }
