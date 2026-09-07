@@ -48,6 +48,7 @@
 # !docs/**/*.md
 !docs/specs/cli-spec.md
 !docs/superpowers/specs/*.md
+!docs/UPSTREAM_SYNC.md
 !docs/superpowers/plans/*.md
 !docs/desktop-handover.md
 !.github/**/*.md
