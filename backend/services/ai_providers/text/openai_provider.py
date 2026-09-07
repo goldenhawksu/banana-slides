@@ -4,29 +4,21 @@ OpenAI SDK implementation for text generation
 import base64
 import logging
 from typing import Generator
-
-import httpx
 from openai import OpenAI
 from .base import TextProvider, strip_think_tags
+from .._http_compat import neutral_ua_client
 from config import get_config
 
 logger = logging.getLogger(__name__)
 
 
-class _NeutralUserAgentTransport(httpx.HTTPTransport):
-    """Override the OpenAI SDK's User-Agent to avoid subscription-account proxy blocks."""
-    def handle_request(self, request):
-        request.headers["user-agent"] = "python-httpx/0.27.0"
-        return super().handle_request(request)
-
-
 class OpenAITextProvider(TextProvider):
     """Text generation using OpenAI SDK (compatible with Gemini via proxy)"""
-
+    
     def __init__(self, api_key: str, api_base: str = None, model: str = "gemini-3-flash-preview"):
         """
         Initialize OpenAI text provider
-
+        
         Args:
             api_key: API key
             api_base: API base URL (e.g., https://api.inferera.com/v1)
@@ -38,7 +30,7 @@ class OpenAITextProvider(TextProvider):
             base_url=api_base,
             timeout=config.OPENAI_TIMEOUT,  # set timeout from config
             max_retries=config.OPENAI_MAX_RETRIES,  # set max retries from config
-            http_client=httpx.Client(transport=_NeutralUserAgentTransport())
+            http_client=neutral_ua_client()
         )
         self.model = model
         self.request_timeout_seconds = config.OPENAI_TIMEOUT
