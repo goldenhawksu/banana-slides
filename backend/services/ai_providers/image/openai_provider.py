@@ -17,6 +17,8 @@ import requests
 import time
 from io import BytesIO
 from typing import Optional, List
+
+import httpx
 from openai import OpenAI
 from PIL import Image
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
@@ -236,6 +238,13 @@ def _compute_gpt_image_size(aspect_ratio: str, resolution: str = '2K') -> str:
     return f'{w}x{h}'
 
 
+class _NeutralUserAgentTransport(httpx.HTTPTransport):
+    """Override the OpenAI SDK's User-Agent to avoid subscription-account proxy blocks."""
+    def handle_request(self, request):
+        request.headers["user-agent"] = "python-httpx/0.27.0"
+        return super().handle_request(request)
+
+
 class OpenAIImageProvider(ImageProvider):
     """
     Image generation using OpenAI SDK.
@@ -266,7 +275,8 @@ class OpenAIImageProvider(ImageProvider):
             api_key=api_key,
             base_url=api_base,
             timeout=get_config().OPENAI_TIMEOUT,  # set timeout from config
-            max_retries=get_config().OPENAI_MAX_RETRIES  # set max retries from config
+            max_retries=get_config().OPENAI_MAX_RETRIES,  # set max retries from config
+            http_client=httpx.Client(transport=_NeutralUserAgentTransport())
         )
         self.api_key = api_key
         self.api_base = api_base or ""
