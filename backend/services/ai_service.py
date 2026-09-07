@@ -152,12 +152,93 @@ class AIService:
         
         return cleaned_text
     
+    # 大纲字段别名表：模型返回的常见变体 → 标准字段
+    _OUTLINE_KEY_ALIASES = {
+        'title': 'title', '标题': 'title', '页面标题': 'title', 'name': 'title', 'topic': 'title',
+        'points': 'points', '要点': 'points', '关键点': 'points', '内容': 'points', '重点': 'points', '要点列表': 'points', 'bullets': 'points',
+        'part': 'part', '章节': 'part', '部分': 'part', '章节标题': 'part', 'section': 'part',
+        'pages': 'pages', '页面列表': 'pages', '页面': 'pages', '页': 'pages',
+    }
+
+    @classmethod
+    def _norm_outline_item(cls, item: dict):
+        """将单个大纲项修复为标准结构（title+points 或 part+pages），失败返回 None"""
+        norm = {}
+        derived_part = None
+        for k, v in item.items():
+            key = cls._OUTLINE_KEY_ALIASES.get(str(k).strip().lower())
+            if key == 'title':
+                norm['title'] = str(v)
+            elif key == 'part':
+                norm['part'] = str(v)
+            elif key == 'points':
+                if isinstance(v, str):
+                    v = [v]
+                if isinstance(v, list):
+                    norm['points'] = [str(p) for p in v]
+            elif key == 'pages' and isinstance(v, list):
+                norm['pages'] = v
+            elif isinstance(v, str) and derived_part is None:
+                # 章节名作为动态 key 的情形：{"一、板块分析": "一、板块分析", "页面列表": [...]}
+                derived_part = str(k).strip() or v
+
+        if 'pages' in norm:
+            part = norm.get('part') or ('title' in norm and norm['title']) or derived_part
+            if not part:
+                return None
+            pages = [cls._norm_outline_item(p) for p in norm['pages'] if isinstance(p, dict)]
+            pages = [p for p in pages if p]
+            if not pages:
+                return None
+            return {'part': str(part), 'pages': pages}
+
+        if 'title' in norm:
+            norm.setdefault('points', [])
+            return norm
+        return None
+
+    @classmethod
+    def _find_outline_list(cls, obj, depth=0):
+        """在任意嵌套结构中递归寻找可修复为大纲的列表"""
+        if depth > 4 or obj is None:
+            return None
+        if isinstance(obj, list):
+            items = [cls._norm_outline_item(x) for x in obj if isinstance(x, dict)]
+            items = [x for x in items if x]
+            # 至少一半元素可修复才认定是大纲列表（避免把普通字符串数组误判为大纲）
+            if items and len(items) >= max(1, len(obj) // 2):
+                return items
+            for x in obj:
+                found = cls._find_outline_list(x, depth + 1)
+                if found:
+                    return found
+            return None
+        if isinstance(obj, dict):
+            for v in obj.values():
+                found = cls._find_outline_list(v, depth + 1)
+                if found:
+                    return found
+        return None
+
+    @classmethod
+    def _normalize_outline(cls, outline):
+        """校验并修复模型返回的大纲结构；无法修复时抛 ValueError 触发重试"""
+        if isinstance(outline, list):
+            items = [cls._norm_outline_item(x) for x in outline if isinstance(x, dict)]
+            items = [x for x in items if x]
+            if items and len(items) >= max(1, len(outline) // 2):
+                return items
+        normalized = cls._find_outline_list(outline)
+        if normalized:
+            return normalized
+        raise ValueError(f"无法从模型返回中识别大纲结构: {str(outline)[:150]}")
+
     @retry(
         stop=stop_after_attempt(3),
         retry=retry_if_exception_type((json.JSONDecodeError, ValueError)),
         reraise=True
     )
-    def generate_json(self, prompt: str, thinking_budget: int = 1000) -> Union[Dict, List]:
+    def generate_json(self, prompt: str, thinking_budget: int = 1000, validator=None) -> Union[Dict, List]:
         """
         生成并解析JSON，如果解析失败则重新生成
         
@@ -173,15 +254,26 @@ class AIService:
         """
         # 调用AI生成文本
         response_text = self.text_provider.generate_text(prompt, thinking_budget=thinking_budget)
-        
+
         # 清理响应文本：移除markdown代码块标记和多余空白
         cleaned_text = response_text.strip().strip("```json").strip("```").strip()
-        
+
         try:
-            return json.loads(cleaned_text)
+            result = json.loads(cleaned_text)
         except json.JSONDecodeError as e:
             logger.warning(f"JSON解析失败，将重新生成。原始文本: {cleaned_text[:200]}... 错误: {str(e)}")
             raise
+
+        if validator:
+            try:
+                normalized = validator(result)
+            except ValueError as e:
+                logger.warning(f"JSON结构校验失败，将重新生成。错误: {str(e)}")
+                raise
+            if normalized is not None:
+                result = normalized
+
+        return result
     
     @retry(
         stop=stop_after_attempt(3),
@@ -283,7 +375,7 @@ class AIService:
             List of outline items (may contain parts with pages or direct pages)
         """
         outline_prompt = get_outline_generation_prompt(project_context, language)
-        outline = self.generate_json(outline_prompt, thinking_budget=1000)
+        outline = self.generate_json(outline_prompt, thinking_budget=1000, validator=self._normalize_outline)
         return outline
     
     def parse_outline_text(self, project_context: ProjectContext, language: str = None) -> List[Dict]:
@@ -298,7 +390,7 @@ class AIService:
             List of outline items (may contain parts with pages or direct pages)
         """
         parse_prompt = get_outline_parsing_prompt(project_context, language)
-        outline = self.generate_json(parse_prompt, thinking_budget=1000)
+        outline = self.generate_json(parse_prompt, thinking_budget=1000, validator=self._normalize_outline)
         return outline
     
     def flatten_outline(self, outline: List[Dict]) -> List[Dict]:
@@ -307,10 +399,18 @@ class AIService:
         Based on demo.py flatten_outline()
         """
         pages = []
+        if not isinstance(outline, list):
+            logger.warning(f"flatten_outline: expected list, got {type(outline).__name__}")
+            return pages
         for item in outline:
+            if not isinstance(item, dict):
+                logger.warning(f"flatten_outline: skipping non-dict item: {str(item)[:50]}")
+                continue
             if "part" in item and "pages" in item:
                 # This is a part, expand its pages
                 for page in item["pages"]:
+                    if not isinstance(page, dict):
+                        continue
                     page_with_part = page.copy()
                     page_with_part["part"] = item["part"]
                     pages.append(page_with_part)
@@ -528,7 +628,7 @@ class AIService:
             List of outline items (may contain parts with pages or direct pages)
         """
         parse_prompt = get_description_to_outline_prompt(project_context, language)
-        outline = self.generate_json(parse_prompt, thinking_budget=1000)
+        outline = self.generate_json(parse_prompt, thinking_budget=1000, validator=self._normalize_outline)
         return outline
     
     def parse_description_to_page_descriptions(self, project_context: ProjectContext, 
