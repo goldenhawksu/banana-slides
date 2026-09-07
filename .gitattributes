@@ -1,0 +1,6 @@
+# 强制bat/cmd文件使用CRLF换行符
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 其他文本文件自动适配系统（可选，保持默认即可）
+* text=auto

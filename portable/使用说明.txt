@@ -1,0 +1,179 @@
+# Banana Slides 便携版使用说明
+
+## 快速开始
+
+1. **解压 ZIP 包**
+   将 `banana-slides-portable-vX.X.X.zip` 解压到任意目录
+
+2. **运行启动脚本**
+   双击 `portable\一键启动.bat`
+
+3. **按提示安装环境**
+   - 安装 uv (推荐) 或 Python 3.10+
+   - 安装 Node.js 18+
+
+4. **等待自动配置**
+   - 脚本会自动创建 Python 虚拟环境 (Python 3.12)
+   - 自动安装所有依赖
+   - 自动启动服务
+
+5. **开始使用**
+   浏览器会自动打开 http://localhost:3000
+
+---
+
+## 环境要求
+
+### 必需软件
+
+**选项 1 - 使用 uv (推荐)**:
+- Node.js 18+
+- uv (会自动下载 Python 3.12)
+
+**选项 2 - 手动安装**:
+- Node.js 18+
+- Python 3.10+
+
+### 安装命令
+
+**uv (推荐)**:
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Node.js**:
+下载地址: https://nodejs.org/
+
+---
+
+## 管理工具
+
+除了一键启动,还提供完整的管理菜单:
+
+### 使用 PowerShell 菜单
+
+```powershell
+cd portable
+.\menu.ps1
+```
+
+**功能列表**:
+- [1] 启动服务
+- [2] 停止服务
+- [3] 重启服务
+- [4] 查看状态
+- [5] 配置环境 (编辑 .env)
+- [6] 安装依赖
+- [7] 清理数据
+- [8] 打开浏览器
+- [9] 更新所有代码
+- [P] 配置代理
+
+---
+
+## 配置说明
+
+### 主配置文件: `.env`
+
+首次启动会自动从 `portable/.env.default` 复制默认配置。
+
+**重要配置项**:
+
+```ini
+# AI 服务配置
+GOOGLE_API_KEY=your-api-key          # 你的 API 密钥
+GOOGLE_API_BASE=https://your-proxy   # API 代理地址
+
+# 模型配置
+TEXT_MODEL=gemini-2.0-flash-exp      # 文本生成模型
+IMAGE_MODEL=imagen-3.0-generate-001  # 图片生成模型
+```
+
+### 代理配置: `.proxy`
+
+如果需要网络代理:
+
+```ini
+PROXY_ENABLED=true
+PROXY_SERVER=socks://127.0.0.1:1080
+```
+
+---
+
+## 常见问题
+
+### Q: 启动失败,提示找不到 uv 或 Python?
+
+**A**: 请先安装 uv (推荐):
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+或者安装 Python 3.10+: https://www.python.org/downloads/
+
+### Q: 启动失败,提示找不到 Node.js?
+
+**A**: 请先安装 Node.js 18+: https://nodejs.org/
+
+### Q: 如何修改配置?
+
+**A**: 两种方式:
+1. 首次启动时选择 "Y" 编辑配置
+2. 运行 `portable\menu.ps1` 选择 [5] 配置环境
+
+### Q: 如何清理所有数据?
+
+**A**: 运行 `portable\menu.ps1` 选择 [7] 清理数据
+
+这将删除:
+- 数据库文件
+- 用户上传的文件
+
+### Q: 如何停止服务?
+
+**A**: 关闭后端和前端的两个命令行窗口
+
+或者运行 `portable\menu.ps1` 选择 [2] 停止服务
+
+### Q: 端口被占用怎么办?
+
+**A**: 默认端口:
+- 后端: 5000
+- 前端: 3000
+
+如果端口冲突,请检查其他程序是否占用这些端口。
+
+---
+
+## 目录结构
+
+```
+banana-slides/
+├── backend/             # 后端代码
+├── frontend/            # 前端代码
+├── portable/            # 便携版脚本
+│   ├── 一键启动.bat    # Windows 一键启动
+│   ├── menu.ps1         # 管理菜单
+│   ├── .env.default     # 默认配置模板
+│   ├── .proxy.default   # 代理配置模板
+│   └── 使用说明.txt     # 本文件
+├── .venv/               # Python 虚拟环境 (自动创建)
+├── .env                 # 配置文件 (自动创建)
+└── README.md            # 项目说明
+```
+
+---
+
+## 获取帮助
+
+- **项目主页**: https://github.com/Anionex/banana-slides
+- **问题反馈**: https://github.com/Anionex/banana-slides/issues
+- **完整文档**: 查看 `docs/` 目录
+
+---
+
+## 许可证
+
+CC BY-NC-SA 4.0 - 非商业用途开源
+
+使用前请阅读 LICENSE 文件
