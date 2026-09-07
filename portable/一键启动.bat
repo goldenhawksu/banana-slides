@@ -198,6 +198,15 @@ if not exist "%PROJECT_ROOT%\.env" (
     echo   [✓] .env 配置文件已存在
 )
 
+REM 从 .env 读取端口配置（未配置时使用上游默认值）
+set "BACKEND_PORT=5011"
+set "FRONTEND_PORT=3011"
+for /f "tokens=1,* delims==" %%a in ('type "%PROJECT_ROOT%\.env" ^| findstr /v "^#"') do (
+    if "%%a"=="BACKEND_PORT" set "BACKEND_PORT=%%b"
+    if "%%a"=="FRONTEND_PORT" set "FRONTEND_PORT=%%b"
+)
+echo   [提示] 后端端口: %BACKEND_PORT%  前端端口: %FRONTEND_PORT%
+
 echo.
 echo [4/5] 安装/检查依赖...
 
@@ -270,8 +279,8 @@ echo ========================================
 echo.
 echo   [启动完成!]
 echo.
-echo   后端服务: http://localhost:5011
-echo   前端页面: http://localhost:3011
+echo   后端服务: http://localhost:%BACKEND_PORT%
+echo   前端页面: http://localhost:%FRONTEND_PORT%
 echo.
 echo   正在打开浏览器...
 echo.
@@ -280,7 +289,7 @@ echo.
 
 REM 打开浏览器
 timeout /t 2 /nobreak >nul
-start http://localhost:3011
+start http://localhost:%FRONTEND_PORT%
 
 echo.
 echo 提示: 关闭此窗口不会停止服务；要停止服务,请关闭两个命令行窗口
